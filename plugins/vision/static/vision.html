@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Alice · Visión</title>
+  <style>
+    :root {
+      --bg: #0d1117; --panel: #161b22; --border: #30363d;
+      --text: #e6edf3; --muted: #8b949e; --accent: #a371f7; --green: #238636; --red: #f85149;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      display: flex; flex-direction: column; align-items: center; padding: 20px 16px;
+    }
+    h1 { font-size: 20px; letter-spacing: .5px; margin: 0 0 16px; }
+    h1 span { color: var(--accent); }
+    .stage {
+      width: 100%; max-width: 720px; background: #000; border: 1px solid var(--border);
+      border-radius: 14px; overflow: hidden; aspect-ratio: 4 / 3; display: grid; place-items: center;
+    }
+    .stage img { width: 100%; height: 100%; object-fit: contain; display: block; }
+    .panel {
+      width: 100%; max-width: 720px; background: var(--panel); border: 1px solid var(--border);
+      border-radius: 14px; padding: 16px; margin-top: 16px;
+    }
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    input {
+      flex: 1; min-width: 180px; background: var(--bg); border: 1px solid var(--border);
+      color: var(--text); border-radius: 10px; padding: 11px 14px; font-size: 15px; outline: none;
+    }
+    input:focus { border-color: var(--accent); }
+    button {
+      border: none; cursor: pointer; color: #fff; font-size: 14px; font-weight: 600;
+      padding: 11px 18px; border-radius: 10px; background: var(--accent); transition: opacity .15s;
+    }
+    button:active { opacity: .7; }
+    button.ghost { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 6px 12px; font-weight: 400; }
+    .hint { color: var(--muted); font-size: 13px; margin: 4px 0 12px; }
+    .status { font-size: 14px; margin-top: 10px; min-height: 20px; }
+    .status.ok { color: var(--green); } .status.err { color: var(--red); }
+    .faces { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .chip {
+      display: flex; align-items: center; gap: 8px; background: var(--bg);
+      border: 1px solid var(--border); border-radius: 20px; padding: 6px 8px 6px 14px; font-size: 14px;
+    }
+    .chip.empty { color: var(--muted); border-style: dashed; }
+  </style>
+</head>
+<body>
+  <h1>👁️ Alice · <span>Visión</span></h1>
+  <div class="stage"><img src="/stream" alt="cámara de Alice" /></div>
+
+  <div class="panel">
+    <div class="hint">
+      Ponte frente a la cámara, escribe tu nombre y pulsa <b>Aprender mi cara</b>.
+      Repítelo 2–3 veces con distinta luz/ángulo para que te reconozca mejor.
+    </div>
+    <div class="row">
+      <input id="name" placeholder="Tu nombre (p. ej. Adrián)" autocomplete="off" />
+      <button id="enroll">Aprender mi cara</button>
+    </div>
+    <div class="status" id="status"></div>
+
+    <div class="faces" id="faces"></div>
+  </div>
+
+  <script>
+    const statusEl = document.getElementById("status");
+    const facesEl = document.getElementById("faces");
+    const nameInput = document.getElementById("name");
+
+    function setStatus(msg, kind) {
+      statusEl.textContent = msg;
+      statusEl.className = "status " + (kind || "");
+    }
+
+    async function loadFaces() {
+      try {
+        const res = await fetch("/faces");
+        const data = await res.json();
+        renderFaces(data.faces || []);
+      } catch (e) { /* servidor aún arrancando */ }
+    }
+
+    function renderFaces(names) {
+      facesEl.innerHTML = "";
+      if (!names.length) {
+        const chip = document.createElement("div");
+        chip.className = "chip empty";
+        chip.textContent = "Aún no conozco a nadie";
+        facesEl.appendChild(chip);
+        return;
+      }
+      for (const name of names) {
+        const chip = document.createElement("div");
+        chip.className = "chip";
+        chip.appendChild(document.createTextNode("🙂 " + name));
+        const btn = document.createElement("button");
+        btn.className = "ghost"; btn.textContent = "olvidar";
+        btn.onclick = () => forget(name);
+        chip.appendChild(btn);
+        facesEl.appendChild(chip);
+      }
+    }
+
+    async function enroll() {
+      const name = nameInput.value.trim();
+      if (!name) { setStatus("Escribe tu nombre primero.", "err"); return; }
+      setStatus("Mirando tu cara…");
+      try {
+        const res = await fetch("/enroll", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          setStatus(`✓ Aprendido: ${data.name} (${data.samples} muestra${data.samples > 1 ? "s" : ""}).`, "ok");
+          loadFaces();
+        } else {
+          setStatus("⚠️ " + (data.error || "no se pudo"), "err");
+        }
+      } catch (e) { setStatus("⚠️ error de red", "err"); }
+    }
+
+    async function forget(name) {
+      await fetch("/forget", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      loadFaces();
+    }
+
+    document.getElementById("enroll").onclick = enroll;
+    nameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") enroll(); });
+    loadFaces();
+    setInterval(loadFaces, 5000);
+  </script>
+</body>
+</html>

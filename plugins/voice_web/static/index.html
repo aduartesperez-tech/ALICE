@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Alice · Voz</title>
+  <style>
+    :root {
+      --bg: #0d1117; --panel: #161b22; --border: #30363d;
+      --text: #e6edf3; --muted: #8b949e;
+      --alice: #1f6feb; --user: #238636; --accent: #a371f7;
+      --rec: #f85149;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      display: flex; flex-direction: column; align-items: center;
+    }
+    header {
+      width: 100%; max-width: 760px; padding: 20px 16px 12px;
+      display: flex; align-items: center; gap: 12px;
+    }
+    header .dot {
+      width: 12px; height: 12px; border-radius: 50%;
+      background: var(--rec); transition: background .3s;
+    }
+    header .dot.on { background: var(--user); box-shadow: 0 0 10px var(--user); }
+    header h1 { font-size: 20px; margin: 0; letter-spacing: .5px; }
+    header .status { color: var(--muted); font-size: 13px; margin-left: auto; }
+    main {
+      flex: 1; width: 100%; max-width: 760px; padding: 8px 16px;
+      overflow-y: auto; display: flex; flex-direction: column; gap: 12px;
+    }
+    .msg { max-width: 80%; padding: 10px 14px; border-radius: 14px; line-height: 1.45;
+           white-space: pre-wrap; word-wrap: break-word; animation: pop .18s ease; }
+    @keyframes pop { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; } }
+    .msg.user { align-self: flex-end; background: var(--user); border-bottom-right-radius: 4px; }
+    .msg.alice { align-self: flex-start; background: var(--panel);
+                 border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+    .msg.sys { align-self: center; background: transparent; color: var(--muted);
+               font-size: 13px; font-style: italic; padding: 4px; }
+    .msg .who { display: block; font-size: 11px; opacity: .7; margin-bottom: 3px; }
+    footer {
+      width: 100%; max-width: 760px; padding: 12px 16px 20px;
+      display: flex; gap: 10px; align-items: center;
+    }
+    #text {
+      flex: 1; background: var(--panel); border: 1px solid var(--border);
+      color: var(--text); border-radius: 22px; padding: 12px 18px; font-size: 15px;
+      outline: none;
+    }
+    #text:focus { border-color: var(--alice); }
+    button {
+      border: none; cursor: pointer; color: #fff; font-size: 18px;
+      width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center;
+      transition: transform .1s, background .2s;
+    }
+    button:active { transform: scale(.92); }
+    #send { background: var(--alice); }
+    #mic { background: var(--accent); position: relative; }
+    #mic.recording { background: var(--rec); animation: pulse 1.2s infinite; }
+    @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(248,81,73,.6); }
+                       50% { box-shadow: 0 0 0 10px rgba(248,81,73,0); } }
+    .toggle { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 5px; }
+    .toggle input { accent-color: var(--accent); }
+  </style>
+</head>
+<body>
+  <header>
+    <span class="dot" id="dot"></span>
+    <h1>Alice</h1>
+    <span class="status" id="status">conectando…</span>
+  </header>
+  <main id="log"></main>
+  <footer>
+    <label class="toggle" title="Alice lee sus respuestas en voz alta">
+      <input type="checkbox" id="ttsOn" checked /> 🔊
+    </label>
+    <input id="text" placeholder="Escribe o pulsa el micrófono…" autocomplete="off" />
+    <button id="mic" title="Hablar">🎤</button>
+    <button id="send" title="Enviar">➤</button>
+  </footer>
+
+  <script>
+    const log = document.getElementById("log");
+    const statusEl = document.getElementById("status");
+    const dot = document.getElementById("dot");
+    const textInput = document.getElementById("text");
+    const micBtn = document.getElementById("mic");
+    const sendBtn = document.getElementById("send");
+    const ttsOn = document.getElementById("ttsOn");
+
+    function addMsg(text, who) {
+      const div = document.createElement("div");
+      div.className = "msg " + who;
+      if (who !== "sys") {
+        const label = document.createElement("span");
+        label.className = "who";
+        label.textContent = who === "user" ? "tú" : "alice";
+        div.appendChild(label);
+      }
+      div.appendChild(document.createTextNode(text));
+      log.appendChild(div);
+      log.scrollTop = log.scrollHeight;
+      return div;
+    }
+
+    // --- Voz de salida (TTS) ---
+    let esVoice = null;
+    function pickVoice() {
+      const voices = speechSynthesis.getVoices();
+      esVoice = voices.find(v => /es[-_]/i.test(v.lang)) || voices[0] || null;
+    }
+    speechSynthesis.onvoiceschanged = pickVoice;
+    pickVoice();
+    function speak(text) {
+      if (!ttsOn.checked || !text) return;
+      speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      if (esVoice) u.voice = esVoice;
+      u.lang = esVoice ? esVoice.lang : "es-ES";
+      u.rate = 1.0;
+      speechSynthesis.speak(u);
+    }
+
+    // --- WebSocket con reconexión ---
+    let ws;
+    function connect() {
+      ws = new WebSocket(`ws://${location.host}/ws`);
+      ws.onopen = () => { statusEl.textContent = "en línea"; dot.classList.add("on"); };
+      ws.onclose = () => {
+        statusEl.textContent = "reconectando…"; dot.classList.remove("on");
+        setTimeout(connect, 1500);
+      };
+      ws.onmessage = (ev) => {
+        const data = JSON.parse(ev.data);
+        if (data.type === "response") { addMsg(data.text, "alice"); speak(data.text); }
+      };
+    }
+    connect();
+
+    // --- Enviar texto ---
+    function sendText() {
+      const text = textInput.value.trim();
+      if (!text || ws.readyState !== WebSocket.OPEN) return;
+      addMsg(text, "user");
+      ws.send(JSON.stringify({ type: "text", text }));
+      textInput.value = "";
+    }
+    sendBtn.onclick = sendText;
+    textInput.addEventListener("keydown", (e) => { if (e.key === "Enter") sendText(); });
+
+    // --- Micrófono + Whisper ---
+    let mediaRecorder = null, chunks = [], recording = false;
+    micBtn.onclick = async () => {
+      if (recording) { mediaRecorder.stop(); return; }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        chunks = [];
+        mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
+        mediaRecorder.onstop = async () => {
+          stream.getTracks().forEach(t => t.stop());
+          micBtn.classList.remove("recording"); recording = false;
+          const blob = new Blob(chunks, { type: mediaRecorder.mimeType });
+          const pending = addMsg("🎧 transcribiendo…", "sys");
+          try {
+            const res = await fetch("/transcribe", { method: "POST", body: blob });
+            const data = await res.json();
+            pending.remove();
+            if (data.text) addMsg(data.text, "user");
+            else if (data.error) addMsg("⚠️ " + data.error, "sys");
+            else addMsg("(no se entendió nada)", "sys");
+          } catch (err) {
+            pending.remove();
+            addMsg("⚠️ error al transcribir", "sys");
+          }
+        };
+        mediaRecorder.start();
+        micBtn.classList.add("recording"); recording = true;
+      } catch (err) {
+        addMsg("⚠️ no se pudo acceder al micrófono", "sys");
+      }
+    };
+  </script>
+</body>
+</html>

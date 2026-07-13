@@ -1,0 +1,5 @@
+[plugin]
+name = "vision"
+version = "1.0.0"
+description = "Visión por webcam: reconoce caras (quién), presencia y gestos de mano."
+subscribes = []

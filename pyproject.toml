@@ -1,0 +1,73 @@
+[project]
+name = "alice-core"
+version = "1.0.0"
+description = "Núcleo de una IA modular basada en eventos"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.4",
+    "mypy>=1.9",
+]
+# Interfaz de voz (plugin voice_web): servidor web + Whisper local.
+voice = [
+    "aiohttp>=3.9",
+    "faster-whisper>=1.0",
+]
+# Visión (plugin vision): webcam + caras (InsightFace) + gestos (MediaPipe).
+vision = [
+    "aiohttp>=3.9",
+    "opencv-python>=4.9",
+    "mediapipe>=0.10",
+    "insightface>=0.7",
+    "onnx>=1.16",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["alice*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "TCH"]
+
+[tool.ruff.lint.per-file-ignores]
+# En tests, importar tipos en runtime (Path, etc.) es cómodo y sin coste real.
+"tests/**" = ["TC001", "TC002", "TC003"]
+
+[tool.ruff.lint.flake8-type-checking]
+# Pydantic resuelve las anotaciones en runtime; sus tipos no deben moverse a
+# un bloque TYPE_CHECKING o el modelo no se construye.
+runtime-evaluated-base-classes = [
+    "pydantic.BaseModel",
+    "pydantic_settings.BaseSettings",
+]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+warn_unused_ignores = true
+disallow_any_generics = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]

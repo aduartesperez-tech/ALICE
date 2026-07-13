@@ -1,0 +1,45 @@
+# Configuración de Alice Core. Los valores aquí sobreescriben los defaults;
+# las variables de entorno ALICE_* sobreescriben este archivo.
+
+[event_bus]
+max_queue_size = 1000
+
+[logging]
+level = "INFO"
+log_dir = "logs"
+file_name = "alice.log"
+to_console = true
+
+[plugins]
+plugins_dir = "plugins"
+
+[tools]
+default_timeout_seconds = 10.0
+granted_permissions = ["read_system"]
+
+[llm]
+# provider = "null": arranca sin servidor (respuestas en crudo).
+# provider = "openai_compat": conecta a LM Studio / Ollama / servidor remoto.
+provider = "openai_compat"
+base_url = "http://127.0.0.1:1234/v1"    # LM Studio. Ollama: http://localhost:11434/v1
+model = "local-model"                   # LM Studio ignora este valor y usa el modelo cargado en su GUI
+temperature = 0.7
+max_tokens = 512
+timeout_seconds = 60.0
+narrate = true                          # con provider="null" se fuerza a false automáticamente
+history_turns = 6
+
+[planner]
+# "rules":        solo regex (determinista, sin LLM).
+# "hybrid":       regex primero; si nada aplica, el LLM clasifica la intención
+#                 en un catálogo cerrado de intenciones.
+# "tool_calling": regex primero; si nada aplica, el LLM elige tools del catálogo
+#                 REAL (function calling). Añadir una tool la hace usable sin
+#                 tocar el planner. Mejor con un modelo fuerte (p.ej. glm-4.7-flash);
+#                 con modelos pequeños el regex sigue cubriendo lo habitual.
+strategy = "tool_calling"
+intent_timeout_seconds = 20.0
+
+[memory]
+db_path = "data/alice.db"
+short_term_max_items = 200

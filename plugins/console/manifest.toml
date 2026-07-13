@@ -1,0 +1,5 @@
+[plugin]
+name = "console"
+version = "1.0.0"
+description = "Entrada/salida por terminal: lee comandos de stdin y muestra las respuestas."
+subscribes = ["response.ready"]

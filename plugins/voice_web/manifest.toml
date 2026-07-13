@@ -1,0 +1,5 @@
+[plugin]
+name = "voice_web"
+version = "1.0.0"
+description = "Interfaz web con voz: micrófono (Whisper) + chat + Alice habla (TTS)."
+subscribes = ["response.ready"]

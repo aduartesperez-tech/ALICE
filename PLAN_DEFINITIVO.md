@@ -231,3 +231,104 @@ proactividad. Son los pilares que faltan de `SPEC_ALICE_KERNEL_V2.md`.
 2. **Fase 1**: el bucle agente. Es el cambio que hace que "no veas que use las
    tools" desaparezca de verdad y que Alice se sienta un agente, no un router.
 3. A partir de ahí, capacidades (2–3) y mente (4) en ese orden.
+
+---
+
+## Anexo A — Contratos de los pilares cognitivos (detalle de la Fase 4)
+
+> Rescatado de `SPEC_ALICE_KERNEL_V2.md` (archivada). El pilar **Action Executor**
+> ya está implementado; lo que sigue son los **cuatro pilares que faltan**, con su
+> contrato cerrado, para no rediseñarlos cuando llegue la Fase 4.
+
+**Principio rector:** todo sigue por el bus; las dos únicas lecturas síncronas
+permitidas son **CognitiveState** (vista de solo lectura) y **Memory**. El
+Planner decide, el estado solo aporta datos, los thoughts nunca salen.
+
+### A.1 CognitiveState (`brain/cognition.py`) — el estado mental (solo datos)
+
+Se actualiza SOLO escuchando eventos; se lee síncrono desde el Planner. **Cero
+lógica de decisión** dentro (ningún `if` de negocio: eso es del Planner).
+
+```python
+class CognitiveState(BaseModel):
+    attention: str | None                    # a qué atiende ahora
+    conversation: ConversationInfo | None    # con quién habla, desde cuándo
+    current_goal: str | None                 # objetivo del último plan
+    active_user: str | None                  # usuario presente identificado
+    environment: dict[str, Any]              # snapshot: hay gente, hora local...
+    mode: str                                # "normal" | "profesor" | ... (set_state)
+    drives: Drives                           # ver A.4
+    last_seen: dict[str, datetime]           # persona -> última vez vista
+    last_heard: datetime | None
+```
+
+Actualizaciones por evento: `person.detected`→`last_seen`;
+`conversation.started`→`conversation`; `plan.created`→`current_goal`. La acción
+`set_state` del Executor (hoy stub, `executor.py:135`) escribe aquí. Escenario
+guía: `person.detected` → el Planner LEE el estado (¿conversación activa? ¿le
+conozco? ¿hace cuánto?) → decide saludar. La regla vive en el Planner, no aquí.
+
+### A.2 AttentionManager (`brain/attention.py`) — filtro percepción→cognición
+
+Con voz+visión, cada ruido dispararía al Planner. El AttentionManager calcula una
+**salience** y decide: ignorar, solo actualizar estado, o promover a
+`attention.focused` (lo que el Planner escucha en vez de la percepción cruda).
+
+```
+salience = novedad + relevancia_goal + presencia + prioridad_evento + drives
+```
+
+Bajo umbral → solo actualiza CognitiveState (Alice "lo ve" pero no "le atiende").
+Sobre umbral → emite `attention.focused` con el evento embebido. `command.received`
+**siempre** pasa. Umbrales en `alice.toml`; cada decisión se loguea con su score.
+**No construir hasta tener percepción real que filtrar** (ya la hay: voz/visión).
+
+### A.3 Internal Thoughts — lo que Alice piensa y nunca dice
+
+Un evento + persistencia, no un módulo grande. Evento `thought.created` con
+`Thought(text, about, kind, confidence)` (`kind`: observación | hipótesis |
+intención de seguimiento). Lo emiten Planner (al decidir) y Executor (al
+completar/fallar). Van a memoria episódica (`kind: thought`) vía un `remember`
+implícito. **Regla dura, con test dedicado:** ningún camino de código lleva un
+`thought.*` a `response.ready`. Solo los leen el Planner, el LLM (contexto) y los logs.
+
+### A.4 Drives (dentro de CognitiveState) — pesos de planificación, no emociones
+
+```python
+class Drives(BaseModel):
+    curiosity: float = 0.5    # sube la salience de lo novedoso
+    urgency: float = 0.0      # acorta planes, sube prioridades de eventos
+    confidence: float = 0.5   # bajo → el Planner prefiere preguntar antes de actuar
+    importance: float = 0.5   # peso del goal actual frente a interrupciones
+```
+
+Los leen el AttentionManager (modulan salience) y el Planner (modulan reglas); los
+modifican eventos y acciones `set_state`. Se sacan a un módulo propio SOLO si algún
+día ganan dinámica interna (decaimiento, interacción entre drives). No antes.
+
+### A.5 Eventos futuros del catálogo (para las Fases 1 y 4)
+
+```
+attention.focused     # el AttentionManager promovió una percepción (Fase 4)
+thought.created       # pensamiento interno, nunca sale al usuario (Fase 4)
+goal.set / goal.done  # ciclo de vida del objetivo actual (Fase 4)
+state.changed         # CognitiveState cambió: mode, drives, active_user (Fase 4)
+confirmation.requested / confirmation.granted   # flujo de confirmación (Fase 2)
+```
+
+(Ya existen y funcionan: `plan.completed`, `plan.failed`, `response.ready`.)
+
+---
+
+## Anexo B — Documentos históricos (consolidados aquí)
+
+Estos documentos describían trabajo **ya terminado**; se archivan en
+`docs/historico/` (preservados en git) y su contenido vigente vive ahora en este
+plan o en el `README.md`:
+
+- **`PLAN_ALICE_CORE.md`** + **`PROMPT_OPUS.md`** — plan y prompt de la v1.0
+  (núcleo por eventos). Implementado; los contratos viven en el código y el README.
+- **`PLAN_V1_2.md`** — persistencia SQLite + primer LLM real. Implementado.
+- **`SPEC_ALICE_KERNEL_V2.md`** — los 5 pilares cognitivos. El Action Executor está
+  hecho; los otros 4 pilares se rescataron al **Anexo A** de este documento.
+- **`ROADMAP.md`** — diagnóstico y fases 1-6. Superado por este plan (fases 1-2 hechas).

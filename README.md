@@ -1,14 +1,18 @@
-# Alice Core v1.0
+# Alice
 
 Núcleo (sistema nervioso) de una IA modular basada en eventos. **No es un
 chatbot**: es una plataforma asíncrona que recibe eventos de módulos (voz,
 visión, herramientas, LLM…), los distribuye mediante un EventBus propio y decide
-con un Planner basado en reglas cuándo usar herramientas y cuándo —minimizándolo—
-un modelo de lenguaje.
+con un Planner cuándo usar herramientas y cuándo —minimizándolo— un modelo de
+lenguaje.
 
-Esta versión **no implementa IA real, ni voz, ni visión**: solo el núcleo, con
-las interfaces preparadas para que esos módulos se conecten en el futuro **sin
-modificar el núcleo**.
+Estado actual: además del núcleo, ya funcionan un **LLM real** (LM Studio /
+Ollama, OpenAI-compatible), **memoria persistente** (SQLite), **tool-calling**
+(el LLM elige del catálogo de tools), y plugins de **voz** (`voice_web`, micrófono
++ Whisper + TTS) y **visión** (`vision`, webcam + reconocimiento de caras +
+gestos). El plan a futuro —hacia un agente completo— está en
+[`PLAN_DEFINITIVO.md`](PLAN_DEFINITIVO.md); los documentos de planeación de las
+versiones ya entregadas están archivados en [`docs/historico/`](docs/historico/).
 
 ## Requisitos
 

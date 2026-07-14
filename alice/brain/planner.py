@@ -163,10 +163,6 @@ class RuleBasedStrategy:
         self._narrate = narrate
 
     _DATETIME = re.compile(r"(\bhora\b|\bfecha\b|qu[eé]\s+d[ií]a|\bd[ií]a de hoy\b)", re.IGNORECASE)
-    _INTERNET = re.compile(
-        r"(busca en internet|búscame|buscar en internet|googlea)", re.IGNORECASE
-    )
-    _SHELL = re.compile(r"(apaga|apagar|reinicia|ejecuta|mata el proceso)", re.IGNORECASE)
     _REMINDER = re.compile(
         r"recu[ée]rdame\s+(?P<msg>.+?)\s+en\s+(?P<n>\d+)\s*(?P<unit>segundos?|minutos?|horas?|seg|min)",
         re.IGNORECASE,
@@ -215,32 +211,10 @@ class RuleBasedStrategy:
             # Hora/fecha se resuelve con una tool local: NO se llama al LLM.
             return build_datetime_plan(text, rule="datetime", narrate=self._narrate)
 
-        if self._INTERNET.search(text):
-            # Buscar en internet y luego redactar con el LLM.
-            return Plan(
-                goal="Buscar información en internet y responder",
-                rule="internet_search",
-                user_text=text,
-                actions=[
-                    Action(kind=ActionKind.USE_TOOL, target="internet", params={"query": text}),
-                    Action(kind=ActionKind.CALL_LLM, target="llm"),
-                    Action(kind=ActionKind.RESPOND),
-                ],
-            )
-
-        if self._SHELL.search(text):
-            # Acción del sistema con una tool shell: NO se llama al LLM.
-            return Plan(
-                goal="Ejecutar una acción del sistema",
-                rule="shell",
-                user_text=text,
-                actions=[
-                    Action(kind=ActionKind.USE_TOOL, target="shell", params={"command": text}),
-                    *_tail(self._narrate),
-                ],
-            )
-
         # Sin regla que aplique: el comando va directo al LLM.
+        # (Las tools `internet`/`shell` aún no existen; cuando lleguen — Fase 2
+        # del PLAN_DEFINITIVO — se enrutan por el catálogo de tool_calling, no
+        # por reglas regex que fallarían al no encontrar la tool.)
         return build_chat_plan(text)
 
 

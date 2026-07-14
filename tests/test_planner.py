@@ -19,22 +19,20 @@ def test_datetime_rule_avoids_llm() -> None:
     assert plan.actions[0].target == "datetime"
 
 
-def test_internet_rule_uses_tool_and_llm() -> None:
+def test_internet_query_falls_back_to_chat() -> None:
+    # Las reglas internet/shell se eliminaron (apuntaban a tools inexistentes).
+    # Hasta que exista la tool `internet` (Fase 2), estas consultas van a chat.
     plan = RuleBasedStrategy().plan(
         CommandReceivedPayload(text="Busca en internet cómo funciona MQTT")
     )
-    assert plan.rule == "internet_search"
-    assert plan.requires_llm is True
-    kinds = {a.kind for a in plan.actions}
-    assert ActionKind.USE_TOOL in kinds
-    assert ActionKind.CALL_LLM in kinds
+    assert plan.rule == "fallback_llm"
+    assert plan.actions[0].kind is ActionKind.CALL_LLM
 
 
-def test_shell_rule_avoids_llm() -> None:
+def test_shell_query_falls_back_to_chat() -> None:
     plan = RuleBasedStrategy().plan(CommandReceivedPayload(text="Apaga el servidor FTP"))
-    assert plan.rule == "shell"
-    assert plan.requires_llm is False
-    assert plan.actions[0].target == "shell"
+    assert plan.rule == "fallback_llm"
+    assert plan.actions[0].kind is ActionKind.CALL_LLM
 
 
 def test_reminder_rule_schedules() -> None:

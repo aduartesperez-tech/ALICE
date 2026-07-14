@@ -12,6 +12,13 @@ to_console = true
 
 [plugins]
 plugins_dir = "plugins"
+# enabled: allowlist. Si tiene elementos, SOLO se cargan esos plugins.
+#   Vacía (default) = cargar todos los descubiertos.
+#   Para correr sin webcam/micrófono: enabled = ["console"]
+# disabled: denylist. Estos nunca se cargan (se aplica tras la allowlist).
+#   Ej. para arrancar sin hardware pesado: disabled = ["vision", "voice_web"]
+enabled = []
+disabled = []
 
 [tools]
 default_timeout_seconds = 10.0

@@ -19,7 +19,7 @@ from alice.logging import get_logger
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from faces import FaceStore  # type: ignore[import-not-found]
+    from faces import FaceStore
     from numpy.typing import NDArray
 
 _logger = get_logger("alice.plugin.vision.detectors")

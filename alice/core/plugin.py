@@ -28,6 +28,9 @@ class PluginManifest(BaseModel):
     description: str = ""
     # Tipos de evento a los que el manager suscribirá el plugin.
     subscribes: list[str] = Field(default_factory=list)
+    # Si es False, el plugin no se carga (útil para desactivar hardware pesado
+    # sin borrar la carpeta). La allowlist/denylist de config manda por encima.
+    enabled: bool = True
 
 
 class PluginContext:

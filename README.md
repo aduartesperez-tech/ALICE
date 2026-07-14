@@ -91,9 +91,9 @@ Alice recuerda entre reinicios en `data/alice.db` (SQLite):
 ## Calidad
 
 ```bash
-pytest              # tests
-mypy alice main.py  # tipado estricto
-ruff check .        # lint
+pytest                      # tests
+mypy alice main.py plugins  # tipado estricto (incluye los plugins)
+ruff check .                # lint
 ```
 
 ## Arquitectura en un vistazo

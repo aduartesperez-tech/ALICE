@@ -30,7 +30,7 @@ def build_modules(orchestrator: Orchestrator) -> list[CoreModule]:
         SqliteLongTermMemory,
         open_database,
     )
-    from alice.brain.planner import Planner
+    from alice.brain.planner import Planner, PlanningStrategy
     from alice.tools.builtin.camera_tool import CameraTool
     from alice.tools.builtin.datetime_tool import DateTimeTool
     from alice.tools.builtin.recall_tool import RecallMemoryTool
@@ -89,7 +89,7 @@ def build_modules(orchestrator: Orchestrator) -> list[CoreModule]:
     #   "tool_calling": el LLM elige tools del catálogo real (function calling).
     #   "hybrid": regex + clasificador de intención cerrado.
     #   "rules" (o sin proveedor): solo regex.
-    strategy = None
+    strategy: PlanningStrategy | None = None
     if settings.llm.provider == "openai_compat":
         if settings.planner.strategy == "tool_calling":
             from alice.brain.planner_tools import ToolCallingStrategy

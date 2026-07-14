@@ -16,6 +16,8 @@ _PLUGINS_DIR = Path(__file__).resolve().parent.parent / "plugins"
 def _settings() -> AliceSettings:
     s = AliceSettings()
     s.plugins.plugins_dir = _PLUGINS_DIR
+    # Solo plugins ligeros: sin webcam ni Whisper, que colgarían el test.
+    s.plugins.enabled = ["echo", "console"]
     return s
 
 

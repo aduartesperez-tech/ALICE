@@ -33,6 +33,12 @@ class PluginSettings(BaseModel):
     """Parámetros de descubrimiento de plugins."""
 
     plugins_dir: Path = Path("plugins")
+    # Allowlist: si es no-vacía, SOLO se cargan estos plugins (por nombre).
+    # Vacía (default) = cargar todos los descubiertos. Útil para correr sin
+    # hardware pesado (webcam/micrófono) o para aislar los tests.
+    enabled: list[str] = Field(default_factory=list)
+    # Denylist: estos nunca se cargan. Se aplica después de la allowlist.
+    disabled: list[str] = Field(default_factory=list)
 
 
 class ToolSettings(BaseModel):

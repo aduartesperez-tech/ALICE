@@ -49,6 +49,8 @@ class Orchestrator:
             bus=self.bus,
             scheduler=self.scheduler,
             plugins_dir=settings.plugins.plugins_dir,
+            enabled=settings.plugins.enabled,
+            disabled=settings.plugins.disabled,
         )
         self._modules = list(modules)
         self._consumer: asyncio.Task[None] | None = None

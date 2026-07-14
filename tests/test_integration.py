@@ -8,15 +8,17 @@ el bus y verifica los flujos clave desde ``command.received`` hasta
 from __future__ import annotations
 
 import asyncio
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from alice.brain.executor import ActionExecutor
 from alice.brain.llm import LLMModule, LLMProvider, LLMRequest, LLMResponse, NullLLMProvider
+from alice.brain.plan import Action, ActionKind, Plan
 from alice.brain.planner import Planner
 from alice.core.event_bus import EventBus
 from alice.core.events import (
     COMMAND_RECEIVED,
     PLAN_COMPLETED,
+    PLAN_CREATED,
     PLAN_FAILED,
     RESPONSE_READY,
     Event,
@@ -161,16 +163,36 @@ async def test_datetime_degrades_when_llm_down() -> None:
     assert any(o.kind == "datetime" for o in resp.observations)
 
 
-async def test_internet_search_fails_gracefully_end_to_end() -> None:
+async def test_missing_tool_fails_gracefully_end_to_end() -> None:
+    # Un plan que referencia una tool inexistente debe degradar con gracia:
+    # el ToolManager falla, el Executor emite plan.failed y el usuario recibe
+    # el error (no un silencio). Se inyecta el plan directamente porque ya no
+    # hay una regla que enrute a una tool que no existe.
     h = _Harness()
     await h.start()
-    command_id = await h.send("Busca en internet cómo funciona MQTT")
+    correlation_id = uuid4()
+    plan = Plan(
+        goal="Ejecutar una tool inexistente",
+        rule="test_missing_tool",
+        user_text="da igual",
+        actions=[
+            Action(kind=ActionKind.USE_TOOL, target="no_existe", params={}),
+            Action(kind=ActionKind.RESPOND),
+        ],
+    )
+    await h.bus.publish(
+        Event(
+            type=PLAN_CREATED,
+            source="test",
+            correlation_id=correlation_id,
+            payload=plan.model_dump(),
+        )
+    )
     await h.settle()
     await h.stop()
 
-    # La tool "internet" no existe: el plan aborta pero el usuario recibe el error.
     assert len(h.failed) == 1
     assert len(h.responses) == 1
     resp = ResponseReadyPayload.model_validate(h.responses[0].payload)
     assert resp.observations[0].kind == "error"
-    assert h.failed[0].correlation_id == command_id
+    assert h.failed[0].correlation_id == correlation_id

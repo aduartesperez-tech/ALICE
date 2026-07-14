@@ -99,6 +99,41 @@ async def test_broken_plugin_does_not_block_others(tmp_path: Path) -> None:
     await sched.stop()
 
 
+async def test_allowlist_loads_only_listed(tmp_path: Path) -> None:
+    _make_plugin(tmp_path, "good", _GOOD_PLUGIN, subscribes=[COMMAND_RECEIVED])
+    _make_plugin(tmp_path, "other", _GOOD_PLUGIN, subscribes=[COMMAND_RECEIVED])
+    mgr = PluginManager(
+        bus=EventBus(), scheduler=Scheduler(), plugins_dir=tmp_path, enabled=["good"]
+    )
+    mgr.discover_and_load()
+    # Con allowlist, solo "good" se carga; "other" queda fuera sin importarse.
+    assert mgr.loaded_names == ["good"]
+
+
+async def test_denylist_excludes_plugin(tmp_path: Path) -> None:
+    _make_plugin(tmp_path, "good", _GOOD_PLUGIN, subscribes=[COMMAND_RECEIVED])
+    _make_plugin(tmp_path, "heavy", _GOOD_PLUGIN, subscribes=[COMMAND_RECEIVED])
+    mgr = PluginManager(
+        bus=EventBus(), scheduler=Scheduler(), plugins_dir=tmp_path, disabled=["heavy"]
+    )
+    mgr.discover_and_load()
+    assert mgr.loaded_names == ["good"]
+
+
+async def test_manifest_enabled_false_is_skipped(tmp_path: Path) -> None:
+    _make_plugin(tmp_path, "good", _GOOD_PLUGIN, subscribes=[COMMAND_RECEIVED])
+    off = tmp_path / "off"
+    off.mkdir()
+    (off / "manifest.toml").write_text(
+        '[plugin]\nname = "off"\nversion = "1.0.0"\nenabled = false\n', encoding="utf-8"
+    )
+    (off / "plugin.py").write_text(textwrap.dedent(_GOOD_PLUGIN), encoding="utf-8")
+    mgr = PluginManager(bus=EventBus(), scheduler=Scheduler(), plugins_dir=tmp_path)
+    mgr.discover_and_load()
+    # El plugin con enabled=false en su manifest no se carga (ni se importa).
+    assert mgr.loaded_names == ["good"]
+
+
 async def test_empty_plugins_dir(tmp_path: Path) -> None:
     bus = EventBus()
     sched = Scheduler()

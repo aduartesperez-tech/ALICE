@@ -40,10 +40,21 @@ class _LoadedPlugin:
 class PluginManager:
     """Descubre, inicializa, arranca y detiene plugins."""
 
-    def __init__(self, *, bus: EventBus, scheduler: Scheduler, plugins_dir: Path) -> None:
+    def __init__(
+        self,
+        *,
+        bus: EventBus,
+        scheduler: Scheduler,
+        plugins_dir: Path,
+        enabled: list[str] | None = None,
+        disabled: list[str] | None = None,
+    ) -> None:
         self._bus = bus
         self._scheduler = scheduler
         self._plugins_dir = plugins_dir
+        # Allowlist (si no-vacía, solo estos) y denylist (nunca estos).
+        self._enabled = set(enabled) if enabled else None
+        self._disabled = set(disabled or ())
         self._loaded: list[_LoadedPlugin] = []
 
     @property
@@ -64,11 +75,24 @@ class PluginManager:
         """Carga un único plugin; captura y loguea cualquier fallo sin propagarlo."""
         try:
             manifest = self._read_manifest(folder / MANIFEST_FILE)
+            # El chequeo de activación va ANTES de importar: así un plugin
+            # desactivado (p.ej. visión) no arrastra sus dependencias pesadas.
+            if not self._is_enabled(manifest):
+                _logger.info("plugin_manager.skipped", extra={"plugin": manifest.name})
+                return
             instance = self._import_plugin(folder, manifest)
             self._loaded.append(_LoadedPlugin(instance=instance))
             _logger.info("plugin_manager.loaded", extra={"plugin": manifest.name})
         except Exception:  # noqa: BLE001 - un plugin roto no debe frenar a los demás
             _logger.exception("plugin_manager.load_failed", extra={"folder": str(folder)})
+
+    def _is_enabled(self, manifest: PluginManifest) -> bool:
+        """Decide si un plugin debe cargarse: manifest + allowlist + denylist."""
+        if not manifest.enabled:
+            return False
+        if self._enabled is not None and manifest.name not in self._enabled:
+            return False
+        return manifest.name not in self._disabled
 
     @staticmethod
     def _read_manifest(path: Path) -> PluginManifest:

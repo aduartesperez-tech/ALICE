@@ -62,10 +62,31 @@ strict = true
 plugins = ["pydantic.mypy"]
 warn_unused_ignores = true
 disallow_any_generics = true
+# Los plugins viven fuera del paquete `alice` y cada uno tiene su `plugin.py`;
+# estas dos opciones permiten a mypy chequearlos sin colisión de módulos.
+# Comando de chequeo: mypy alice main.py plugins
+explicit_package_bases = true
+namespace_packages = true
 
 [[tool.mypy.overrides]]
 module = "tests.*"
 disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+# Dependencias nativas de los plugins de voz/visión: no traen stubs de tipos.
+# Los tres últimos (detectors/faces/transcribe) son módulos hermanos que el
+# plugin carga por `sys.path` en runtime; mypy no sigue ese truco, así que se
+# resuelven como imports sin stub (cada módulo se sigue chequeando por separado).
+module = [
+    "cv2.*",
+    "mediapipe.*",
+    "insightface.*",
+    "faster_whisper.*",
+    "detectors",
+    "faces",
+    "transcribe",
+]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

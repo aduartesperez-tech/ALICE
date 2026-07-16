@@ -9,10 +9,14 @@ from __future__ import annotations
 import asyncio
 import signal
 import sys
+from typing import TYPE_CHECKING
 
 from alice.config import load_settings
 from alice.core.orchestrator import CoreModule, Orchestrator
 from alice.logging import get_logger, setup_logging
+
+if TYPE_CHECKING:
+    from alice.brain.agent_reasoner import AgentReasoner
 
 
 def build_modules(orchestrator: Orchestrator) -> list[CoreModule]:
@@ -86,12 +90,28 @@ def build_modules(orchestrator: Orchestrator) -> list[CoreModule]:
     )
 
     # Estrategia de planificación (requiere proveedor real):
-    #   "tool_calling": el LLM elige tools del catálogo real (function calling).
-    #   "hybrid": regex + clasificador de intención cerrado.
+    #   "agent_loop":   bucle agente multi-vuelta (razona, usa tools, itera).
+    #   "tool_calling": el LLM elige tools del catálogo real en una sola vuelta.
+    #   "hybrid":       regex + clasificador de intención cerrado.
     #   "rules" (o sin proveedor): solo regex.
     strategy: PlanningStrategy | None = None
+    agent_reasoner: AgentReasoner | None = None
     if settings.llm.provider == "openai_compat":
-        if settings.planner.strategy == "tool_calling":
+        if settings.planner.strategy == "agent_loop":
+            from alice.brain.agent_loop import AgentLoopStrategy
+            from alice.brain.agent_reasoner import AgentReasoner
+            from alice.brain.tool_catalog import build_tool_specs
+
+            strategy = AgentLoopStrategy(narrate=settings.llm.narrate)
+            # El razonador ve el catálogo REAL de tools: añadir una la hace usable.
+            agent_reasoner = AgentReasoner(
+                bus=bus,
+                provider=provider,
+                tools=build_tool_specs(tool_manager.definitions()),
+                system_prompt=settings.llm.system_prompt,
+                timeout_seconds=settings.planner.intent_timeout_seconds,
+            )
+        elif settings.planner.strategy == "tool_calling":
             from alice.brain.planner_tools import ToolCallingStrategy
             from alice.brain.tool_catalog import build_tool_specs
 
@@ -110,14 +130,27 @@ def build_modules(orchestrator: Orchestrator) -> list[CoreModule]:
                 timeout_seconds=settings.planner.intent_timeout_seconds,
             )
     planner = Planner(bus=bus, strategy=strategy, narrate=settings.llm.narrate)
-    # El timeout del plan da margen al LLM local (lento) cuando hay narración.
-    plan_timeout = settings.llm.timeout_seconds + 30.0 if settings.llm.narrate else 30.0
+    # El timeout del plan da margen al LLM local (lento). El bucle agente puede
+    # encadenar varias llamadas por turno, así que se dimensiona a las vueltas.
+    if agent_reasoner is not None:
+        plan_timeout = settings.llm.timeout_seconds * (settings.planner.max_agent_iters + 1) + 30.0
+    elif settings.llm.narrate:
+        plan_timeout = settings.llm.timeout_seconds + 30.0
+    else:
+        plan_timeout = 30.0
     executor = ActionExecutor(
-        bus=bus, scheduler=orchestrator.scheduler, plan_timeout_seconds=plan_timeout
+        bus=bus,
+        scheduler=orchestrator.scheduler,
+        plan_timeout_seconds=plan_timeout,
+        max_agent_iters=settings.planner.max_agent_iters,
     )
 
-    # Orden de arranque: memoria y tools/llm listos antes que executor y planner.
-    return [tool_manager, memory, llm, executor, planner]
+    # Orden de arranque: memoria y tools/llm/razonador listos antes que executor y planner.
+    modules: list[CoreModule] = [tool_manager, memory, llm]
+    if agent_reasoner is not None:
+        modules.append(agent_reasoner)
+    modules.extend([executor, planner])
+    return modules
 
 
 async def _main() -> None:

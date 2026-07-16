@@ -61,6 +61,39 @@ class LLMFinishedPayload(BaseModel):
     error: str | None = None
 
 
+class AgentToolCall(BaseModel):
+    """Una tool que el LLM pidió invocar en un paso del bucle agente."""
+
+    name: str
+    arguments: dict[str, Any] = {}
+
+
+class AgentStepRequestedPayload(BaseModel):
+    """Petición de un paso de razonamiento del bucle agente.
+
+    Lleva el texto del usuario y todo lo observado hasta ahora (resultados de
+    tools de vueltas previas). El AgentReasoner decide: más tools o respuesta.
+    """
+
+    user_text: str
+    goal: str = ""
+    observations: list[Observation] = []
+
+
+class AgentStepFinishedPayload(BaseModel):
+    """Resultado de un paso del bucle agente.
+
+    Si ``tool_calls`` no está vacío, el Executor las ejecuta y vuelve a pedir
+    otro paso. Si está vacío, ``text`` es la respuesta final (o cadena vacía si
+    el proveedor degradó: el Executor narrará las observaciones en crudo).
+    """
+
+    tool_calls: list[AgentToolCall] = []
+    text: str = ""
+    success: bool = True
+    error: str | None = None
+
+
 class MemoryStoreRequestedPayload(BaseModel):
     """Petición de escritura en memoria (fire-and-forget)."""
 

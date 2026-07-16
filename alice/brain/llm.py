@@ -74,6 +74,18 @@ class ToolSpec(BaseModel):
     parameters: dict[str, object]  # JSON Schema de los parámetros
 
 
+class AgentStep(BaseModel):
+    """Un paso de razonamiento del bucle agente.
+
+    O bien el modelo pide tools (``tool_calls`` no vacío) y el bucle sigue, o
+    bien da la respuesta final (``text``). Nunca ambas: si pidió tools, primero
+    se ejecutan y luego se le vuelve a preguntar.
+    """
+
+    tool_calls: list[LLMToolCall] = Field(default_factory=list)
+    text: str = ""
+
+
 class LLMProvider(ABC):
     """Contrato que cualquier backend de LLM debe implementar."""
 
@@ -94,6 +106,18 @@ class LLMProvider(ABC):
         degrada a conversación normal.
         """
         return []
+
+    async def run_agent_step(
+        self, request: LLMRequest, tools: list[ToolSpec]
+    ) -> AgentStep:
+        """Un paso del bucle agente: decide invocar tools o dar la respuesta.
+
+        Por defecto (proveedores sin function calling) no invoca tools: genera
+        directamente la respuesta final. Los proveedores con soporte real
+        (OpenAI-compatible) lo sobrescriben para elegir tools cuando aplique.
+        """
+        response = await self.generate(request)
+        return AgentStep(text=response.text)
 
     async def aclose(self) -> None:
         """Libera recursos (conexiones HTTP...). Por defecto no hace nada."""

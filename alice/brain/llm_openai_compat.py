@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from alice.brain.llm import LLMProvider, LLMResponse, LLMToolCall, LLMUsage
+from alice.brain.llm import AgentStep, LLMProvider, LLMResponse, LLMToolCall, LLMUsage
 from alice.logging import get_logger
 
 if TYPE_CHECKING:
@@ -114,6 +114,44 @@ class OpenAICompatProvider(LLMProvider):
         response.raise_for_status()
         message = response.json()["choices"][0].get("message", {})
         return self._parse_tool_calls(message.get("tool_calls") or [])
+
+    async def run_agent_step(
+        self, request: LLMRequest, tools: list[ToolSpec]
+    ) -> AgentStep:
+        """Un paso del bucle agente: el modelo elige tools o responde.
+
+        Igual que ``select_tools`` pero, si el modelo NO pide tools, aprovecha el
+        texto que devolvió como respuesta final (una sola llamada por vuelta).
+        """
+        messages: list[dict[str, str]] = []
+        if request.system:
+            messages.append({"role": "system", "content": request.system})
+        messages.extend({"role": m.role, "content": m.content} for m in request.messages)
+        body: dict[str, Any] = {
+            "model": self._model,
+            "messages": messages,
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": t.name,
+                        "description": t.description,
+                        "parameters": t.parameters,
+                    },
+                }
+                for t in tools
+            ],
+            "tool_choice": "auto",
+            "temperature": self._temperature,
+            "stream": False,
+        }
+        response = await self._client.post("chat/completions", json=body)
+        response.raise_for_status()
+        message = response.json()["choices"][0].get("message", {})
+        calls = self._parse_tool_calls(message.get("tool_calls") or [])
+        if calls:
+            return AgentStep(tool_calls=calls)
+        return AgentStep(text=message.get("content") or "")
 
     @staticmethod
     def _parse_tool_calls(raw: list[dict[str, Any]]) -> list[LLMToolCall]:

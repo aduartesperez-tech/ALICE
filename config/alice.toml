@@ -41,11 +41,15 @@ history_turns = 6
 # "hybrid":       regex primero; si nada aplica, el LLM clasifica la intención
 #                 en un catálogo cerrado de intenciones.
 # "tool_calling": regex primero; si nada aplica, el LLM elige tools del catálogo
-#                 REAL (function calling). Añadir una tool la hace usable sin
-#                 tocar el planner. Mejor con un modelo fuerte (p.ej. glm-4.7-flash);
-#                 con modelos pequeños el regex sigue cubriendo lo habitual.
-strategy = "tool_calling"
+#                 REAL (function calling) en UNA vuelta.
+# "agent_loop":   regex primero; si nada aplica, entra el bucle agente multi-vuelta
+#                 (razona → usa tools → observa → repite) hasta max_agent_iters.
+#                 Mejor con un modelo fuerte (p.ej. glm-4.7-flash); con modelos
+#                 pequeños el regex sigue cubriendo lo habitual.
+strategy = "agent_loop"
 intent_timeout_seconds = 20.0
+# Tope de vueltas del bucle agente por turno (cortafuegos anti-bucle-infinito).
+max_agent_iters = 6
 
 [memory]
 db_path = "data/alice.db"

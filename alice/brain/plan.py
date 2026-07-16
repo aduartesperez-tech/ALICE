@@ -21,6 +21,7 @@ class ActionKind(StrEnum):
 
     USE_TOOL = "use_tool"  # -> ToolManager
     CALL_LLM = "call_llm"  # -> LLMModule
+    AGENT_STEP = "agent_step"  # -> AgentReasoner (bucle: decide tools o respuesta)
     REMEMBER = "remember"  # -> Memory (stub en v1.1)
     SCHEDULE = "schedule"  # -> Scheduler
     SET_STATE = "set_state"  # -> CognitiveState (stub en v1.1)

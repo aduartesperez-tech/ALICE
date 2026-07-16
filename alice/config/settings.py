@@ -85,12 +85,16 @@ class PlannerSettings(BaseModel):
     ``strategy = "hybrid"``: regex primero; si ninguna regla aplica, el LLM
     clasifica la intención en un catálogo cerrado. Requiere proveedor real.
     ``strategy = "tool_calling"``: regex primero; si ninguna aplica, el LLM elige
-    tools del catálogo real (function calling). Añadir una tool la hace usable
-    sin tocar el planner. Requiere proveedor real y modelo con function calling.
+    tools del catálogo real (function calling), en UNA vuelta.
+    ``strategy = "agent_loop"``: regex primero; si ninguna aplica, entra el bucle
+    agente multi-vuelta (percibir→razonar→actuar→repetir) hasta ``max_agent_iters``
+    vueltas. Requiere proveedor real y modelo con function calling.
     """
 
-    strategy: str = "rules"  # "rules" | "hybrid" | "tool_calling"
+    strategy: str = "rules"  # "rules" | "hybrid" | "tool_calling" | "agent_loop"
     intent_timeout_seconds: float = 20.0
+    # Tope de vueltas del bucle agente por turno (cortafuegos anti-bucle-infinito).
+    max_agent_iters: int = 6
 
 
 class AliceSettings(BaseSettings):

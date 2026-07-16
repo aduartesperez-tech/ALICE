@@ -7,7 +7,7 @@ import json
 import httpx
 import pytest
 
-from alice.brain.llm import LLMMessage, LLMRequest
+from alice.brain.llm import LLMMessage, LLMRequest, ToolSpec
 from alice.brain.llm_openai_compat import OpenAICompatProvider
 
 
@@ -92,6 +92,61 @@ async def test_generate_raises_on_model_not_found() -> None:
     with pytest.raises(httpx.HTTPStatusError):
         await provider.generate(_request())
     await provider.aclose()
+
+
+_TOOLS = [ToolSpec(name="datetime", description="hora", parameters={"type": "object"})]
+
+
+async def test_run_agent_step_returns_tool_calls() -> None:
+    # Si el modelo pide tools, el paso de agente devuelve esas tool calls.
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": [
+                                {
+                                    "function": {
+                                        "name": "datetime",
+                                        "arguments": '{"tz": "local"}',
+                                    }
+                                }
+                            ],
+                        }
+                    }
+                ]
+            },
+        )
+
+    provider = OpenAICompatProvider(
+        base_url="http://x/v1", model="m", transport=httpx.MockTransport(handler)
+    )
+    step = await provider.run_agent_step(_request(), _TOOLS)
+    await provider.aclose()
+    assert [c.name for c in step.tool_calls] == ["datetime"]
+    assert step.tool_calls[0].arguments == {"tz": "local"}
+    assert step.text == ""
+
+
+async def test_run_agent_step_returns_final_text() -> None:
+    # Si el modelo NO pide tools, se aprovecha su texto como respuesta final.
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"role": "assistant", "content": "Son las tres."}}]},
+        )
+
+    provider = OpenAICompatProvider(
+        base_url="http://x/v1", model="m", transport=httpx.MockTransport(handler)
+    )
+    step = await provider.run_agent_step(_request(), _TOOLS)
+    await provider.aclose()
+    assert step.tool_calls == []
+    assert step.text == "Son las tres."
 
 
 async def test_health_check() -> None:

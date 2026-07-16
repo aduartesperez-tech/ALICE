@@ -80,6 +80,12 @@ TOOL_FINISHED = "tool.finished"
 LLM_REQUESTED = "llm.requested"
 LLM_FINISHED = "llm.finished"
 
+# Bucle agente: un "paso" de razonamiento donde el LLM decide, dado lo observado
+# hasta ahora, si invocar más tools o dar la respuesta final. Lo pide el Executor
+# y lo resuelve el AgentReasoner; así el bucle percibir→razonar→actuar itera.
+AGENT_STEP_REQUESTED = "agent.step_requested"
+AGENT_STEP_FINISHED = "agent.step_finished"
+
 # Memoria
 MEMORY_STORE_REQUESTED = "memory.store_requested"
 MEMORY_STORED = "memory.stored"

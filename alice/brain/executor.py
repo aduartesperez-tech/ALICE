@@ -19,6 +19,8 @@ from uuid import UUID, uuid4
 from alice.brain.context import render_for_llm
 from alice.brain.plan import Action, ActionKind, Plan
 from alice.core.events import (
+    AGENT_STEP_FINISHED,
+    AGENT_STEP_REQUESTED,
     LLM_FINISHED,
     LLM_REQUESTED,
     MEMORY_STORE_REQUESTED,
@@ -32,6 +34,8 @@ from alice.core.events import (
 )
 from alice.core.observation import Observation
 from alice.core.payloads import (
+    AgentStepFinishedPayload,
+    AgentStepRequestedPayload,
     LLMFinishedPayload,
     LLMRequestedPayload,
     MemoryStoreRequestedPayload,
@@ -60,6 +64,10 @@ class _Execution:
     observations: list[Observation] = field(default_factory=list)
     last_llm_text: str | None = None
     timeout_handle: JobHandle | None = None
+    # Modo agente: el plan contiene pasos AGENT_STEP; en él los fallos de tool no
+    # abortan (se convierten en observación y el bucle sigue) y se cuentan vueltas.
+    agent_mode: bool = False
+    agent_iters: int = 0
 
 
 class ActionExecutor:
@@ -68,11 +76,17 @@ class ActionExecutor:
     name = "executor"
 
     def __init__(
-        self, *, bus: EventBus, scheduler: Scheduler, plan_timeout_seconds: float = 30.0
+        self,
+        *,
+        bus: EventBus,
+        scheduler: Scheduler,
+        plan_timeout_seconds: float = 30.0,
+        max_agent_iters: int = 6,
     ) -> None:
         self._bus = bus
         self._scheduler = scheduler
         self._timeout = plan_timeout_seconds
+        self._max_agent_iters = max_agent_iters
         self._executions: dict[UUID, _Execution] = {}
         self._subs: list[Subscription] = []
 
@@ -81,6 +95,7 @@ class ActionExecutor:
             self._bus.subscribe(PLAN_CREATED, self._on_plan_created),
             self._bus.subscribe(TOOL_FINISHED, self._on_tool_finished),
             self._bus.subscribe(LLM_FINISHED, self._on_llm_finished),
+            self._bus.subscribe(AGENT_STEP_FINISHED, self._on_agent_step_finished),
         ]
         _logger.info("executor.started")
 
@@ -95,6 +110,7 @@ class ActionExecutor:
         plan = Plan.model_validate(event.payload)
         correlation_id = event.correlation_id or event.id
         execution = _Execution(plan=plan, correlation_id=correlation_id)
+        execution.agent_mode = any(a.kind is ActionKind.AGENT_STEP for a in plan.actions)
         execution.timeout_handle = self._scheduler.schedule_once(
             timedelta(seconds=self._timeout), self._make_timeout(correlation_id)
         )
@@ -124,6 +140,9 @@ class ActionExecutor:
             if action.kind is ActionKind.CALL_LLM:
                 await self._request_llm(execution, action)
                 return  # espera llm.finished
+            if action.kind is ActionKind.AGENT_STEP:
+                await self._request_agent_step(execution)
+                return  # espera agent.step_finished
             if action.kind is ActionKind.SCHEDULE:
                 self._do_schedule(execution, action)
             elif action.kind is ActionKind.REMEMBER:
@@ -166,6 +185,21 @@ class ActionExecutor:
                 source="brain.executor",
                 correlation_id=execution.correlation_id,
                 payload=LLMRequestedPayload(prompt=prompt).model_dump(),
+            )
+        )
+
+    async def _request_agent_step(self, execution: _Execution) -> None:
+        """Pide al AgentReasoner el siguiente paso, dándole lo observado hasta ahora."""
+        await self._bus.publish(
+            Event(
+                type=AGENT_STEP_REQUESTED,
+                source="brain.executor",
+                correlation_id=execution.correlation_id,
+                payload=AgentStepRequestedPayload(
+                    user_text=execution.plan.user_text,
+                    goal=execution.plan.goal,
+                    observations=execution.observations,
+                ).model_dump(),
             )
         )
 
@@ -232,7 +266,12 @@ class ActionExecutor:
                     data={"error": payload.error or "error desconocido"},
                 )
             )
-            await self._fail(execution, "use_tool", payload.error or "error de herramienta")
+            if execution.agent_mode:
+                # En el bucle agente, un fallo de tool no aborta: queda como
+                # observación y el razonador decide qué hacer en el siguiente paso.
+                await self._advance(execution)
+            else:
+                await self._fail(execution, "use_tool", payload.error or "error de herramienta")
 
     async def _on_llm_finished(self, event: Event) -> None:
         execution = self._executions.get(event.correlation_id) if event.correlation_id else None
@@ -246,6 +285,53 @@ class ActionExecutor:
             _logger.warning(
                 "executor.llm_degraded",
                 extra={"error": payload.error, "correlation_id": str(execution.correlation_id)},
+            )
+        await self._advance(execution)
+
+    async def _on_agent_step_finished(self, event: Event) -> None:
+        """Un paso del bucle: o encola las tools pedidas y sigue, o cierra el turno."""
+        execution = self._executions.get(event.correlation_id) if event.correlation_id else None
+        if execution is None:
+            return
+        payload = AgentStepFinishedPayload.model_validate(event.payload)
+        calls = payload.tool_calls
+
+        if calls and execution.agent_iters < self._max_agent_iters:
+            # El modelo pide más tools: se ejecutan y luego se le vuelve a preguntar.
+            execution.agent_iters += 1
+            for call in calls:
+                execution.plan.actions.append(
+                    Action(kind=ActionKind.USE_TOOL, target=call.name, params=dict(call.arguments))
+                )
+            execution.plan.actions.append(Action(kind=ActionKind.AGENT_STEP))
+            _logger.info(
+                "executor.agent_step",
+                extra={
+                    "correlation_id": str(execution.correlation_id),
+                    "iter": execution.agent_iters,
+                    "tools": [c.name for c in calls],
+                },
+            )
+            await self._advance(execution)
+            return
+
+        # Fin del bucle: respuesta final directa, presupuesto agotado, o degradación.
+        if payload.text:
+            execution.last_llm_text = payload.text
+            execution.plan.actions.append(Action(kind=ActionKind.RESPOND))
+        else:
+            # Sin texto (tope de vueltas con tools pendientes, o proveedor caído):
+            # narramos lo observado con el LLM; si también falla, sale en crudo.
+            if calls:
+                _logger.info(
+                    "executor.agent_budget_exhausted",
+                    extra={
+                        "correlation_id": str(execution.correlation_id),
+                        "iters": execution.agent_iters,
+                    },
+                )
+            execution.plan.actions.extend(
+                [Action(kind=ActionKind.CALL_LLM, target="llm"), Action(kind=ActionKind.RESPOND)]
             )
         await self._advance(execution)
 

@@ -38,8 +38,10 @@ def build_modules(orchestrator: Orchestrator) -> list[CoreModule]:
     from alice.brain.planner import Planner, PlanningStrategy
     from alice.tools.builtin.camera_tool import CameraTool
     from alice.tools.builtin.datetime_tool import DateTimeTool
+    from alice.tools.builtin.python_tool import PythonTool
     from alice.tools.builtin.recall_tool import RecallMemoryTool
     from alice.tools.builtin.script_tool import ScriptTool
+    from alice.tools.builtin.shell_tool import ShellTool
     from alice.tools.manager import ToolManager
 
     settings = orchestrator._settings  # noqa: SLF001 - composition root
@@ -74,6 +76,8 @@ def build_modules(orchestrator: Orchestrator) -> list[CoreModule]:
     tool_manager.register(RecallMemoryTool(episodic))
     tool_manager.register(CameraTool())
     tool_manager.register(ScriptTool())
+    tool_manager.register(ShellTool())
+    tool_manager.register(PythonTool())
 
     # Proveedor LLM: real (OpenAI-compatible) o nulo, según config
     provider: LLMProvider

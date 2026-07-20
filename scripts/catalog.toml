@@ -1,0 +1,24 @@
+# Catálogo de scripts que Alice PUEDE ejecutar.
+#
+# Alice solo puede correr lo que esté declarado aquí: no ejecuta rutas
+# arbitrarias. Añadir un script = dejar el archivo en esta carpeta y añadir su
+# entrada abajo (no hace falta reiniciar: el catálogo se relee en cada uso).
+#
+# Campos:
+#   name        cómo se lo pides a Alice ("ejecuta el script de estado")
+#   description qué hace (Alice se lo dice al usuario al pedir confirmación)
+#   file        archivo dentro de scripts/ (.ps1, .py, .bat, .cmd, .sh)
+#   confirm     true = Alice pregunta antes de ejecutarlo. Por defecto true.
+#               Ponlo en false SOLO para scripts de solo lectura e inofensivos.
+
+[[script]]
+name = "estado_sistema"
+description = "Muestra un resumen del equipo: disco, memoria y tiempo encendido"
+file = "estado_sistema.ps1"
+confirm = false          # solo lee información: no necesita permiso
+
+[[script]]
+name = "limpiar_temporales"
+description = "Revisa los archivos temporales y dice cuánto espacio ocupan (simulación, no borra)"
+file = "limpiar_temporales.ps1"
+confirm = true           # ejemplo del flujo de confirmación

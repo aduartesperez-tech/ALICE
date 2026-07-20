@@ -104,6 +104,22 @@ class MemoryStoreRequestedPayload(BaseModel):
     value: Any = None  # para long_term
 
 
+class ConfirmationRequestedPayload(BaseModel):
+    """Alice pide permiso al usuario antes de una acción que muta el sistema."""
+
+    request_id: str
+    question: str  # lo que se le dice al usuario ("¿Ejecuto el script 'backup'?")
+    detail: str = ""  # qué hará exactamente (para logs y para el canal de salida)
+
+
+class ConfirmationResolvedPayload(BaseModel):
+    """Respuesta a una petición de confirmación. Sin respuesta a tiempo = denegada."""
+
+    request_id: str
+    granted: bool
+    reason: str = ""  # "usuario" | "timeout" | "sin_canal"
+
+
 class MemoryStoredPayload(BaseModel):
     """Confirmación de escritura (para logs/tests; nadie la espera para avanzar)."""
 

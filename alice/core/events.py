@@ -89,3 +89,8 @@ AGENT_STEP_FINISHED = "agent.step_finished"
 # Memoria
 MEMORY_STORE_REQUESTED = "memory.store_requested"
 MEMORY_STORED = "memory.stored"
+
+# Confirmación humana: barandilla para todo lo que muta el sistema (ejecutar
+# scripts, comandos, código). Alice pregunta y ESPERA; sin respuesta = no.
+CONFIRMATION_REQUESTED = "confirmation.requested"
+CONFIRMATION_RESOLVED = "confirmation.resolved"

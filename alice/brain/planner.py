@@ -20,7 +20,7 @@ from alice.core.payloads import CommandReceivedPayload
 from alice.logging import get_logger
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable
+    from collections.abc import Awaitable, Callable
 
     from alice.core.event_bus import EventBus, Subscription
 
@@ -229,9 +229,14 @@ class Planner:
         bus: EventBus,
         strategy: PlanningStrategy | None = None,
         narrate: bool = False,
+        skip_when: Callable[[], bool] | None = None,
     ) -> None:
         self._bus = bus
         self._strategy: PlanningStrategy = strategy or RuleBasedStrategy(narrate=narrate)
+        # Puerta opcional: mientras devuelva True, los comandos NO se planifican.
+        # La usa la confirmación (el "sí" del usuario es una respuesta, no una
+        # petición nueva) sin que el Planner conozca a quién pregunta.
+        self._skip_when = skip_when
         self._subscription: Subscription | None = None
 
     async def start(self) -> None:
@@ -244,6 +249,10 @@ class Planner:
 
     async def _on_command(self, event: Event) -> None:
         command = CommandReceivedPayload.model_validate(event.payload)
+        if self._skip_when is not None and self._skip_when():
+            # Hay una confirmación pendiente: este texto es su respuesta.
+            _logger.info("planner.skipped_pending_confirmation", extra={"command": command.text})
+            return
         result = self._strategy.plan(command)
         # La estrategia puede ser síncrona (reglas) o asíncrona (LLM).
         plan = await result if inspect.isawaitable(result) else result

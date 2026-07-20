@@ -49,6 +49,8 @@ class ToolSettings(BaseModel):
     # Permisos concedidos globalmente; una tool que requiera un permiso fuera
     # de este conjunto será rechazada por el ToolManager.
     granted_permissions: set[str] = Field(default_factory=lambda: {"read_system"})
+    # Cuánto espera Alice tu "sí"/"no" antes de dar por denegada una acción.
+    confirmation_timeout_seconds: float = 45.0
 
 
 DEFAULT_SYSTEM_PROMPT = (

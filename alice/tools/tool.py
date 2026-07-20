@@ -33,6 +33,11 @@ class ToolDefinition(BaseModel):
     description: str
     parameters: type[BaseModel]
     permissions: set[Permission] = Field(default_factory=set)
+    # Si es True, cada ejecución queda registrada en la memoria episódica
+    # (kind "execution"): Alice puede responder "¿qué has ejecutado hoy?".
+    audit: bool = False
+    # Timeout propio, si la tool necesita más que el global (p.ej. un script).
+    timeout_seconds: float | None = None
 
 
 class ToolResult(BaseModel):
@@ -51,3 +56,13 @@ class Tool(ABC):
     @abstractmethod
     async def execute(self, params: BaseModel) -> ToolResult:
         """Ejecuta la herramienta con parámetros ya validados contra el schema."""
+
+    def confirmation_question(self, params: BaseModel) -> str | None:
+        """Pregunta a hacerle al usuario antes de ejecutar, o ``None``.
+
+        Devolver texto obliga al ToolManager a pedir confirmación humana ANTES de
+        ejecutar; si no hay canal para preguntar, la ejecución se deniega
+        (fail-closed). Permite decidir caso por caso: una misma tool puede
+        requerir confirmación para unos parámetros y no para otros.
+        """
+        return None

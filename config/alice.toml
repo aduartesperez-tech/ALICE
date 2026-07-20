@@ -22,7 +22,15 @@ disabled = []
 
 [tools]
 default_timeout_seconds = 10.0
-granted_permissions = ["read_system"]
+# Permisos concedidos. Una tool que pida un permiso que no esté aquí, se rechaza.
+#   read_system : leer información (hora, memoria, cámara). Inofensivo.
+#   shell       : ejecutar scripts del catálogo (scripts/catalog.toml). Quítalo
+#                 de la lista para dejar a Alice sin manos al instante.
+# Aunque el permiso esté dado, todo script marcado con confirm=true en el
+# catálogo sigue pidiéndote permiso en voz antes de ejecutarse.
+granted_permissions = ["read_system", "shell"]
+# Cuánto espera Alice tu "sí"/"no". Si no contestas, la acción se DENIEGA.
+confirmation_timeout_seconds = 45.0
 
 [llm]
 # provider = "null": arranca sin servidor (respuestas en crudo).

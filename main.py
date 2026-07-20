@@ -25,6 +25,7 @@ def build_modules(orchestrator: Orchestrator) -> list[CoreModule]:
     El orquestador ya está creado, así que los módulos reciben su ``bus`` y
     ``scheduler``. Este es el único punto de composición (composition root).
     """
+    from alice.brain.confirm import ConfirmationManager
     from alice.brain.executor import ActionExecutor
     from alice.brain.llm import LLMModule, LLMProvider, NullLLMProvider
     from alice.brain.memory import InMemoryShortTermMemory
@@ -38,6 +39,7 @@ def build_modules(orchestrator: Orchestrator) -> list[CoreModule]:
     from alice.tools.builtin.camera_tool import CameraTool
     from alice.tools.builtin.datetime_tool import DateTimeTool
     from alice.tools.builtin.recall_tool import RecallMemoryTool
+    from alice.tools.builtin.script_tool import ScriptTool
     from alice.tools.manager import ToolManager
 
     settings = orchestrator._settings  # noqa: SLF001 - composition root
@@ -56,15 +58,22 @@ def build_modules(orchestrator: Orchestrator) -> list[CoreModule]:
         connection=conn,
     )
 
+    # Confirmación humana: la barandilla de todo lo que muta el sistema.
+    confirmation = ConfirmationManager(
+        bus=bus, timeout_seconds=settings.tools.confirmation_timeout_seconds
+    )
+
     # Herramientas (recall_memory necesita la memoria episódica ya creada)
     tool_manager = ToolManager(
         bus=bus,
         granted_permissions=settings.tools.granted_permissions,
         default_timeout=settings.tools.default_timeout_seconds,
+        confirmer=confirmation,
     )
     tool_manager.register(DateTimeTool())
     tool_manager.register(RecallMemoryTool(episodic))
     tool_manager.register(CameraTool())
+    tool_manager.register(ScriptTool())
 
     # Proveedor LLM: real (OpenAI-compatible) o nulo, según config
     provider: LLMProvider
@@ -130,7 +139,14 @@ def build_modules(orchestrator: Orchestrator) -> list[CoreModule]:
                 narrate=settings.llm.narrate,
                 timeout_seconds=settings.planner.intent_timeout_seconds,
             )
-    planner = Planner(bus=bus, strategy=strategy, narrate=settings.llm.narrate)
+    # Mientras una confirmación espera respuesta, el "sí"/"no" del usuario NO se
+    # planifica como un comando nuevo: es la respuesta a la pregunta de Alice.
+    planner = Planner(
+        bus=bus,
+        strategy=strategy,
+        narrate=settings.llm.narrate,
+        skip_when=confirmation.is_pending,
+    )
     # El timeout del plan da margen al LLM local (lento). El bucle agente puede
     # encadenar varias llamadas por turno, así que se dimensiona a las vueltas.
     if agent_reasoner is not None:
@@ -147,7 +163,7 @@ def build_modules(orchestrator: Orchestrator) -> list[CoreModule]:
     )
 
     # Orden de arranque: memoria y tools/llm/razonador listos antes que executor y planner.
-    modules: list[CoreModule] = [tool_manager, memory, llm]
+    modules: list[CoreModule] = [confirmation, tool_manager, memory, llm]
     if agent_reasoner is not None:
         modules.append(agent_reasoner)
     modules.extend([executor, planner])

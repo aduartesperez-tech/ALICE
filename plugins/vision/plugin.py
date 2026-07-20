@@ -6,8 +6,15 @@ web. Los cambios relevantes (aparece alguien, te reconoce, haces un gesto) se
 publican como eventos de percepción en el bus, y opcionalmente disparan una
 reacción hablada (un ``command.received`` que Alice narra y dice en voz alta).
 
-Config por entorno: ALICE_VISION_PORT (8757), ALICE_VISION_CAMERA (0),
-ALICE_VISION_DET_SIZE (320), ALICE_VISION_REACT (1 = Alice reacciona por voz).
+Config por entorno:
+  ALICE_VISION_PORT (8757), ALICE_VISION_CAMERA (0), ALICE_VISION_REACT (1).
+  Rendimiento (para equipos modestos):
+    ALICE_VISION_INFER_INTERVAL (0.4 s entre inferencias pesadas; súbelo si va lento)
+    ALICE_VISION_FPS (15, cadencia del vídeo mostrado)
+    ALICE_VISION_WIDTH (640) / ALICE_VISION_HEIGHT (480)
+    ALICE_VISION_DET_SIZE (320)
+    ALICE_VISION_MODEL (buffalo_l; usa buffalo_s para mucha menos CPU)
+    ALICE_VISION_GESTURES (1; ponlo a 0 para apagar los gestos y ahorrar CPU)
 """
 
 from __future__ import annotations
@@ -52,11 +59,12 @@ _GESTURE_MODEL_URL = (
     "gesture_recognizer/float16/1/gesture_recognizer.task"
 )
 
-# Ajustes de estabilidad/anti-spam (en frames o segundos).
-_PROCESS_EVERY = 2  # correr detección 1 de cada N frames (el resto solo anota)
-_PRESENCE_FRAMES = 3  # frames consecutivos para confirmar un cambio de presencia
-_GREET_COOLDOWN = 60.0  # no volver a saludar a la misma persona antes de esto
-_GESTURE_STABLE = 3  # frames con el mismo gesto para darlo por válido
+# Ajustes de estabilidad/anti-spam (en inferencias o segundos).
+_PRESENCE_FRAMES = 3  # inferencias consecutivas para confirmar un cambio de presencia
+# Solo se vuelve a saludar a alguien si estuvo AUSENTE al menos esto. Mientras
+# sigas presente, Alice saluda UNA vez (al llegar) y no repite: se siente natural.
+_REGREET_ABSENCE = 180.0
+_GESTURE_STABLE = 3  # inferencias con el mismo gesto para darlo por válido
 _GESTURE_COOLDOWN = 6.0  # espera entre reacciones a gestos
 _REACTION_COOLDOWN = 12.0  # freno global entre cualquier par de reacciones habladas
 
@@ -78,13 +86,26 @@ class AlicePlugin(Plugin):
         self._camera_index = int(os.environ.get("ALICE_VISION_CAMERA", "0"))
         det_size = int(os.environ.get("ALICE_VISION_DET_SIZE", "320"))
         self._react = os.environ.get("ALICE_VISION_REACT", "1") != "0"
+        # Tunables de rendimiento (equipos modestos): freno de inferencia, cadencia
+        # de vídeo, resolución de captura, modelo y si se detectan gestos.
+        self._infer_interval = float(os.environ.get("ALICE_VISION_INFER_INTERVAL", "0.4"))
+        self._display_fps = float(os.environ.get("ALICE_VISION_FPS", "15"))
+        self._cap_width = int(os.environ.get("ALICE_VISION_WIDTH", "640"))
+        self._cap_height = int(os.environ.get("ALICE_VISION_HEIGHT", "480"))
+        model_name = os.environ.get("ALICE_VISION_MODEL", "buffalo_l")
+        enable_gestures = os.environ.get("ALICE_VISION_GESTURES", "1") != "0"
 
         data_dir = Path("data")
         model_path = data_dir / "gesture_recognizer.task"
-        self._ensure_gesture_model(model_path)
+        if enable_gestures:
+            self._ensure_gesture_model(model_path)
         self._faces = FaceStore(data_dir / "faces.json")
         self._engine = VisionEngine(
-            face_store=self._faces, gesture_model_path=model_path, det_size=det_size
+            face_store=self._faces,
+            gesture_model_path=model_path,
+            det_size=det_size,
+            model_name=model_name,
+            enable_gestures=enable_gestures,
         )
 
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -98,11 +119,12 @@ class AlicePlugin(Plugin):
         # Estado para debounce/cooldown de eventos y reacciones.
         self._present = False
         self._presence_run = 0
-        self._last_greet: dict[str, float] = {}
+        self._last_seen: dict[str, float] = {}  # persona -> última vez vista (monotonic)
         self._last_gesture: str | None = None
         self._gesture_run = 0
         self._last_gesture_react = 0.0
         self._last_reaction = 0.0  # freno global: evita encolar reacciones en ráfaga
+        self._stream_clients = 0  # nº de navegadores mirando el stream (para no codificar en balde)
 
         self._runner: web.AppRunner | None = None
         self._app = self._build_app()
@@ -156,7 +178,7 @@ class AlicePlugin(Plugin):
     # --- Hilo de cámara -------------------------------------------------------
 
     def _camera_loop(self) -> None:
-        """Captura, procesa (con throttle), anota y publica eventos. Hilo daemon."""
+        """Captura, procesa (con throttle por tiempo), anota y publica. Hilo daemon."""
         try:
             self._engine.load()
         except Exception:  # noqa: BLE001 - sin modelos no hay visión, pero no tumba Alice
@@ -166,15 +188,26 @@ class AlicePlugin(Plugin):
         if not cap.isOpened():
             self._log.warning("vision.camera_unavailable", extra={"index": self._camera_index})
             return
-        frame_no = 0
+        # Baja resolución + buffer mínimo: menos CPU y sin lag acumulado de frames viejos.
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._cap_width)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._cap_height)
+        cap.set(cv2.CAP_PROP_FPS, self._display_fps)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
         result = VisionResult()
+        frame_period = 1.0 / self._display_fps if self._display_fps > 0 else 0.0
+        last_infer = 0.0
         while self._running:
+            tick = time.time()
             ok, frame = cap.read()
             if not ok:
                 time.sleep(0.05)
                 continue
-            frame_no += 1
-            if frame_no % _PROCESS_EVERY == 0:
+            # La inferencia pesada (caras + gestos, InsightFace/MediaPipe en CPU) se
+            # limita por TIEMPO, no por frame: es el freno que evita saturar la CPU
+            # y dejar el equipo trabado. Entre inferencias se reusa el último result.
+            if tick - last_infer >= self._infer_interval:
+                last_infer = tick
                 try:
                     result = self._engine.process(frame)
                 except Exception:  # noqa: BLE001 - un frame malo no rompe el bucle
@@ -184,10 +217,17 @@ class AlicePlugin(Plugin):
                     self._latest_result = result
                     self._last_process_time = time.time()
                 self._handle_transitions(result)
-            annotated = self._engine.annotate(frame, result)
-            ok, buf = cv2.imencode(".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, 80])
-            if ok:
-                self._latest_jpeg = buf.tobytes()
+            # Codificar el JPEG solo si alguien está viendo el stream: si la página
+            # web no está abierta (lo normal), nos ahorramos ese trabajo por frame.
+            if self._stream_clients > 0:
+                annotated = self._engine.annotate(frame, result)
+                ok, buf = cv2.imencode(".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                if ok:
+                    self._latest_jpeg = buf.tobytes()
+            # Cadencia del bucle: cede CPU en vez de girar a tope.
+            spent = time.time() - tick
+            if frame_period > spent:
+                time.sleep(frame_period - spent)
         cap.release()
 
     def _handle_transitions(self, result: VisionResult) -> None:
@@ -210,20 +250,29 @@ class AlicePlugin(Plugin):
             )
 
     def _track_identity(self, result: VisionResult) -> None:
+        """Saluda a alguien AL LLEGAR, no en bucle: solo la primera vez que aparece
+        o cuando vuelve tras una ausencia real. Mientras siga presente, calla."""
         now = time.monotonic()
         for name in result.known_names():
-            last = self._last_greet.get(name, 0.0)
-            if now - last < _GREET_COOLDOWN:
+            last = self._last_seen.get(name)
+            self._last_seen[name] = now
+            # Sigue presente (o se ausentó solo un instante): no repetir el saludo.
+            if last is not None and now - last < _REGREET_ABSENCE:
                 continue
-            self._last_greet[name] = now
             self._emit_event(
                 FACE_RECOGNIZED,
                 FaceRecognizedPayload(name=name, known=True).model_dump(),
             )
-            self._react_text(
-                f"(Acabas de ver a {name} por la cámara. Salúdalo por su nombre, "
-                f"breve y natural.)"
-            )
+            if last is None:
+                self._react_text(
+                    f"(Acabas de ver a {name} por la cámara. Salúdale por su nombre, "
+                    f"breve, cálida y natural, como una amiga que se alegra de verle.)"
+                )
+            else:
+                self._react_text(
+                    f"(Vuelves a ver a {name} tras un rato sin verle. Salúdale con "
+                    f"naturalidad y cariño, muy breve, como a un amigo que regresa.)"
+                )
 
     def _track_gesture(self, result: VisionResult) -> None:
         gesture = result.gesture
@@ -284,6 +333,8 @@ class AlicePlugin(Plugin):
             headers={"Content-Type": "multipart/x-mixed-replace; boundary=frame"}
         )
         await resp.prepare(request)
+        # Con al menos un espectador, el bucle de cámara codifica el JPEG.
+        self._stream_clients += 1
         try:
             while self._running:
                 jpeg = self._latest_jpeg
@@ -291,9 +342,11 @@ class AlicePlugin(Plugin):
                     await resp.write(
                         b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpeg + b"\r\n"
                     )
-                await asyncio.sleep(0.04)
+                await asyncio.sleep(0.05)
         except (ConnectionResetError, asyncio.CancelledError):
             pass
+        finally:
+            self._stream_clients = max(0, self._stream_clients - 1)
         return resp
 
     async def _handle_faces(self, _request: web.Request) -> web.Response:

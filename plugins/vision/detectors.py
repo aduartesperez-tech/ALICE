@@ -79,11 +79,17 @@ class VisionEngine:
         gesture_model_path: Path,
         det_size: int = 320,
         min_gesture_score: float = 0.5,
+        model_name: str = "buffalo_l",
+        enable_gestures: bool = True,
     ) -> None:
         self._faces = face_store
         self._gesture_model_path = gesture_model_path
         self._det_size = det_size
         self._min_gesture_score = min_gesture_score
+        # buffalo_l es más preciso; buffalo_s es mucho más ligero en CPU (equipos
+        # modestos). Los gestos (MediaPipe) se pueden apagar para ahorrar CPU.
+        self._model_name = model_name
+        self._enable_gestures = enable_gestures
         self._app: Any | None = None
         self._recognizer: Any | None = None
 
@@ -91,9 +97,14 @@ class VisionEngine:
         """Carga los modelos (bloqueante ~segundos + descarga la 1ª vez)."""
         from insightface.app import FaceAnalysis
 
-        _logger.info("vision.loading_insightface")
-        self._app = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
+        _logger.info("vision.loading_insightface", extra={"model": self._model_name})
+        self._app = FaceAnalysis(name=self._model_name, providers=["CPUExecutionProvider"])
         self._app.prepare(ctx_id=0, det_size=(self._det_size, self._det_size))
+
+        if not self._enable_gestures:
+            _logger.info("vision.gestures_disabled")
+            _logger.info("vision.engine_ready")
+            return
 
         import mediapipe as mp
         from mediapipe.tasks import python as mp_python
@@ -115,8 +126,9 @@ class VisionEngine:
         """Procesa un frame BGR y devuelve caras (con identidad) y gesto."""
         result = VisionResult()
         result.faces = self._detect_faces(frame_bgr)
-        gesture, hand = self._detect_gesture(frame_bgr)
-        result.gesture, result.gesture_hand = gesture, hand
+        if self._recognizer is not None:
+            gesture, hand = self._detect_gesture(frame_bgr)
+            result.gesture, result.gesture_hand = gesture, hand
         return result
 
     def _detect_faces(self, frame_bgr: NDArray[np.uint8]) -> list[FaceDetection]:

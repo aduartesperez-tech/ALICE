@@ -149,6 +149,44 @@ async def test_run_agent_step_returns_final_text() -> None:
     assert step.text == "Son las tres."
 
 
+async def test_api_key_sets_authorization_header() -> None:
+    captured: dict[str, str | None] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["auth"] = request.headers.get("authorization")
+        return httpx.Response(
+            200, json={"choices": [{"message": {"role": "assistant", "content": "hola"}}]}
+        )
+
+    provider = OpenAICompatProvider(
+        base_url="https://api.openai.com/v1",
+        model="gpt-4o-mini",
+        api_key="sk-secreta",
+        transport=httpx.MockTransport(handler),
+    )
+    await provider.generate(_request())
+    await provider.aclose()
+    assert captured["auth"] == "Bearer sk-secreta"
+
+
+async def test_no_api_key_omits_authorization_header() -> None:
+    # Servidores locales (LM Studio) no piden clave: no debe mandarse la cabecera.
+    captured: dict[str, str | None] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["auth"] = request.headers.get("authorization")
+        return httpx.Response(
+            200, json={"choices": [{"message": {"role": "assistant", "content": "hola"}}]}
+        )
+
+    provider = OpenAICompatProvider(
+        base_url="http://localhost:1234/v1", model="local", transport=httpx.MockTransport(handler)
+    )
+    await provider.generate(_request())
+    await provider.aclose()
+    assert captured["auth"] is None
+
+
 async def test_health_check() -> None:
     def ok(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"data": []})

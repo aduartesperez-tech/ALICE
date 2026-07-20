@@ -6,6 +6,7 @@ con prefijo ``ALICE_``. Reemplazable sin tocar código.
 
 from __future__ import annotations
 
+import os
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -61,8 +62,12 @@ class LLMSettings(BaseModel):
     """Parámetros del proveedor de LLM."""
 
     provider: str = "null"  # "openai_compat" | "null"
-    base_url: str = "http://localhost:1234/v1"  # LM Studio; Ollama: :11434/v1
+    base_url: str = "http://localhost:1234/v1"  # LM Studio; OpenAI: https://api.openai.com/v1
     model: str = "local-model"
+    # Clave de API. Vacía para servidores locales (LM Studio/Ollama no la piden).
+    # Para OpenAI: NO la pongas aquí (este archivo va en git); pásala por el entorno
+    # `ALICE_LLM__API_KEY` o el archivo `.env` (ignorado por git). Ver .env.example.
+    api_key: str = ""
     temperature: float = 0.7
     max_tokens: int = 512
     timeout_seconds: float = 60.0
@@ -123,8 +128,29 @@ class AliceSettings(BaseSettings):
         return self
 
 
+def _load_dotenv(path: Path) -> None:
+    """Carga un ``.env`` sencillo (KEY=VALUE) al entorno, sin dependencias.
+
+    Las variables reales del entorno tienen prioridad (``setdefault``): el ``.env``
+    solo rellena lo que no esté ya definido. Sirve para secretos (la API key) que
+    NO deben ir en ``config/alice.toml`` (ese sí está en git).
+    """
+    if not path.is_file():
+        return
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]  # quita comillas envolventes
+        os.environ.setdefault(key.strip(), value)
+
+
 def load_settings(config_path: Path | None = None) -> AliceSettings:
     """Carga la configuración desde un TOML (si existe) y aplica overrides de entorno."""
+    _load_dotenv(Path(".env"))
     data: dict[str, Any] = {}
     path = config_path or Path("config/alice.toml")
     if path.is_file():

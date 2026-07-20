@@ -74,6 +74,7 @@ def build_modules(orchestrator: Orchestrator) -> list[CoreModule]:
         provider = OpenAICompatProvider(
             base_url=settings.llm.base_url,
             model=settings.llm.model,
+            api_key=settings.llm.api_key or None,
             temperature=settings.llm.temperature,
             max_tokens=settings.llm.max_tokens,
             timeout_seconds=settings.llm.timeout_seconds,

@@ -30,6 +30,7 @@ class OpenAICompatProvider(LLMProvider):
         *,
         base_url: str,
         model: str,
+        api_key: str | None = None,
         temperature: float = 0.7,
         max_tokens: int = 512,
         timeout_seconds: float = 60.0,
@@ -39,10 +40,13 @@ class OpenAICompatProvider(LLMProvider):
         self._temperature = temperature
         self._max_tokens = max_tokens
         normalized = base_url.rstrip("/") + "/"
+        # Servidores locales (LM Studio/Ollama) no piden clave; OpenAI y compañía sí.
+        headers = {"Authorization": f"Bearer {api_key}"} if api_key else None
         self._client = httpx.AsyncClient(
             base_url=normalized,
             timeout=timeout_seconds,
             transport=transport,
+            headers=headers,
         )
 
     async def generate(self, request: LLMRequest) -> LLMResponse:

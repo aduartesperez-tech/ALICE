@@ -26,10 +26,20 @@ granted_permissions = ["read_system"]
 
 [llm]
 # provider = "null": arranca sin servidor (respuestas en crudo).
-# provider = "openai_compat": conecta a LM Studio / Ollama / servidor remoto.
+# provider = "openai_compat": OpenAI, LM Studio, Ollama o cualquier servidor
+#   con API /v1/chat/completions. Local vs nube = solo cambia base_url (+ api_key).
 provider = "openai_compat"
-base_url = "http://127.0.0.1:1234/v1"    # LM Studio. Ollama: http://localhost:11434/v1
-model = "local-model"                   # LM Studio ignora este valor y usa el modelo cargado en su GUI
+
+# --- OpenAI (nube) ---
+base_url = "https://api.openai.com/v1"
+model = "gpt-4o-mini"                    # barato y con function calling (necesario para el bucle agente)
+# La API key NO va aquí (este archivo está en git). Ponla en `.env` como
+# ALICE_LLM__API_KEY=sk-...  (ver .env.example). También vale una variable de entorno.
+
+# --- LM Studio (local), para volver más adelante: comenta lo de arriba y usa esto ---
+# base_url = "http://127.0.0.1:1234/v1"   # Ollama: http://localhost:11434/v1
+# model = "local-model"                   # LM Studio ignora este valor y usa el modelo cargado
+
 temperature = 0.7
 max_tokens = 512
 timeout_seconds = 60.0

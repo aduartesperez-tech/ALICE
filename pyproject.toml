@@ -21,6 +21,12 @@ voice = [
     "aiohttp>=3.9",
     "faster-whisper>=1.0",
 ]
+# Control del PC (Fase 3): volumen (pycaw) y ventanas (pygetwindow).
+# Sin esto, esas tools degradan con un mensaje claro; el resto sigue funcionando.
+control = [
+    "pycaw>=20240210",
+    "pygetwindow>=0.0.9",
+]
 # Visión (plugin vision): webcam + caras (InsightFace) + gestos (MediaPipe).
 vision = [
     "aiohttp>=3.9",
@@ -82,6 +88,8 @@ module = [
     "mediapipe.*",
     "insightface.*",
     "faster_whisper.*",
+    "pycaw.*",
+    "pygetwindow.*",
     "detectors",
     "faces",
     "transcribe",
